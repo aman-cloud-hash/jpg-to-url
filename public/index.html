@@ -839,7 +839,7 @@
       formData.append("image", selectedFile);
 
       try {
-        const res = await fetch("/upload", {
+        const res = await fetch("/api/upload", {
           method: "POST",
           body: formData,
         });
@@ -881,7 +881,7 @@
       `;
 
       try {
-        const res = await fetch("/products");
+        const res = await fetch("/api/products");
         const products = await res.json();
 
         imageCount.textContent = products.length;
@@ -943,7 +943,7 @@
       }
 
       try {
-        const res = await fetch(`/delete/${id}`, { method: "DELETE" });
+        const res = await fetch(`/api/delete/${id}`, { method: "DELETE" });
         const data = await res.json();
 
         if (res.ok) {
