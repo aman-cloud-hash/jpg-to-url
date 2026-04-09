@@ -27,9 +27,18 @@ const createTable = async () => {
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS products (
-        id SERIAL PRIMARY KEY,
-        image_url TEXT NOT NULL,
-        public_id TEXT NOT NULL
+        id INT8 NOT NULL DEFAULT unique_rowid(),
+        image_url STRING NULL,
+        public_id STRING NULL,
+        title STRING NULL,
+        price DECIMAL NULL,
+        category STRING NULL,
+        description STRING NULL,
+        material STRING NULL,
+        is_featured BOOL NULL DEFAULT false,
+        is_trending BOOL NULL DEFAULT false,
+        created_at TIMESTAMP NULL DEFAULT current_timestamp():::TIMESTAMP,
+        CONSTRAINT products_pkey PRIMARY KEY (id ASC)
       );
     `);
     console.log("✅ Products table is ready (with public_id support)");

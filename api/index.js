@@ -66,10 +66,24 @@ app.post("/api/upload", upload.single("image"), async (req, res) => {
 
     console.log("☁️ Cloudinary upload success:", result.secure_url);
 
+    const { title, price, category, description, material, is_featured, is_trending } = req.body;
+
     // Save with String IDs for precision in Javascript
     const dbResult = await pool.query(
-      "INSERT INTO products (image_url, public_id) VALUES ($1, $2) RETURNING id::text as id, image_url, public_id",
-      [result.secure_url, result.public_id]
+      `INSERT INTO products (
+        image_url, public_id, title, price, category, description, material, is_featured, is_trending
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id::text as id, image_url, public_id, title, price, category, description, material, is_featured, is_trending`,
+      [
+        result.secure_url, 
+        result.public_id, 
+        title || null, 
+        price || null, 
+        category || null, 
+        description || null, 
+        material || null, 
+        is_featured === 'true' || is_featured === true || false, 
+        is_trending === 'true' || is_trending === true || false
+      ]
     );
 
     console.log("💾 Saved to database, ID:", dbResult.rows[0].id);
@@ -90,7 +104,7 @@ app.post("/api/upload", upload.single("image"), async (req, res) => {
 app.get("/api/products", async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT id::text as id, image_url, public_id FROM products ORDER BY id DESC"
+      "SELECT id::text as id, image_url, public_id, title, price, category, description, material, is_featured, is_trending, created_at FROM products ORDER BY created_at DESC"
     );
     console.log(`📦 Fetched ${result.rows.length} products`);
     res.json(result.rows);

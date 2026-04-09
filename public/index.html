@@ -651,30 +651,107 @@
       border: 2px solid white;
     }
 
-    /* ===== Responsive ===== */
-    @media (max-width: 640px) {
-      .container {
-        padding: 24px 16px;
-      }
-
-      .upload-section {
-        padding: 24px;
-      }
-
-      .drop-zone {
-        padding: 32px 16px;
-      }
-
-      .image-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .gallery-section__header {
-        flex-direction: column;
-        gap: 12px;
-        align-items: flex-start;
-      }
+    .form-group {
+      margin-top: 20px;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
     }
+
+    .form-field {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .form-field label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .form-field input, .form-field select, .form-field textarea {
+      padding: 10px 14px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 14px;
+      transition: border-color 0.2s;
+    }
+
+    .form-field input:focus, .form-field textarea:focus {
+      border-color: var(--accent);
+      outline: none;
+    }
+
+    .form-field--full {
+      grid-column: span 2;
+    }
+
+    .form-field textarea {
+      resize: vertical;
+      min-height: 80px;
+    }
+
+    .checkbox-group {
+      display: flex;
+      gap: 24px;
+      grid-column: span 2;
+      margin-top: 8px;
+    }
+
+    .checkbox-field {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+
+    .checkbox-field input {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+
+    .checkbox-field span {
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+
+    .image-card__title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-top: 8px;
+      display: block;
+    }
+
+    .image-card__price {
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--accent);
+      margin-top: 4px;
+    }
+
+    .image-card__badges {
+      display: flex;
+      gap: 4px;
+      margin-top: 8px;
+    }
+
+    .badge {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .badge--featured { background: rgba(108, 99, 255, 0.2); color: var(--accent); }
+    .badge--trending { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+    .badge--category { background: rgba(255, 255, 255, 0.1); color: var(--text-secondary); }
   </style>
 </head>
 <body>
@@ -708,6 +785,40 @@
           <div class="file-preview__size" id="fileSize"></div>
         </div>
         <button class="file-preview__remove" id="removeFile" title="Remove file">&times;</button>
+      </div>
+
+      <!-- Product Details Form -->
+      <div class="form-group">
+        <div class="form-field">
+          <label for="title">Product Title</label>
+          <input type="text" id="title" placeholder="e.g. Premium Cotton Tee" />
+        </div>
+        <div class="form-field">
+          <label for="price">Price ($)</label>
+          <input type="number" id="price" step="0.01" placeholder="0.00" />
+        </div>
+        <div class="form-field">
+          <label for="category">Category</label>
+          <input type="text" id="category" placeholder="e.g. Clothing" />
+        </div>
+        <div class="form-field">
+          <label for="material">Material</label>
+          <input type="text" id="material" placeholder="e.g. 100% Cotton" />
+        </div>
+        <div class="form-field form-field--full">
+          <label for="description">Description</label>
+          <textarea id="description" placeholder="Describe the product..."></textarea>
+        </div>
+        <div class="checkbox-group">
+          <label class="checkbox-field">
+            <input type="checkbox" id="is_featured" />
+            <span>Featured Product</span>
+          </label>
+          <label class="checkbox-field">
+            <input type="checkbox" id="is_trending" />
+            <span>Trending Item</span>
+          </label>
+        </div>
       </div>
 
       <!-- Upload Button -->
@@ -837,6 +948,13 @@
 
       const formData = new FormData();
       formData.append("image", selectedFile);
+      formData.append("title", document.getElementById("title").value);
+      formData.append("price", document.getElementById("price").value);
+      formData.append("category", document.getElementById("category").value);
+      formData.append("material", document.getElementById("material").value);
+      formData.append("description", document.getElementById("description").value);
+      formData.append("is_featured", document.getElementById("is_featured").checked);
+      formData.append("is_trending", document.getElementById("is_trending").checked);
 
       try {
         const res = await fetch("/api/upload", {
@@ -852,6 +970,13 @@
           selectedFile = null;
           fileInput.value = "";
           filePreview.classList.remove("show");
+          document.getElementById("title").value = "";
+          document.getElementById("price").value = "";
+          document.getElementById("category").value = "";
+          document.getElementById("material").value = "";
+          document.getElementById("description").value = "";
+          document.getElementById("is_featured").checked = false;
+          document.getElementById("is_trending").checked = false;
           // Refresh gallery
           fetchProducts();
         } else {
@@ -910,9 +1035,20 @@
                     </div>
                   </div>
                 </div>
-                <div class="image-card__footer" style="display: flex; justify-content: space-between; align-items: center;">
-                  <span class="image-card__id">Database ID: ${p.id.slice(0, 8)}...</span>
-                  <a href="${p.image_url}" target="_blank" style="color: var(--accent); text-decoration: none; font-size: 11px; font-weight: 600; text-transform: uppercase;">View Asset ↗</a>
+                <div class="image-card__footer">
+                  <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <span class="image-card__title">${p.title || 'Untitled Product'}</span>
+                    <span class="image-card__price">${p.price ? '$' + p.price : ''}</span>
+                  </div>
+                  <div class="image-card__badges">
+                    ${p.category ? `<span class="badge badge--category">${p.category}</span>` : ''}
+                    ${p.is_featured ? `<span class="badge badge--featured">Featured</span>` : ''}
+                    ${p.is_trending ? `<span class="badge badge--trending">Trending</span>` : ''}
+                  </div>
+                  <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center;">
+                    <span class="image-card__id">ID: ${p.id.slice(0, 8)}...</span>
+                    <a href="${p.image_url}" target="_blank" style="color: var(--accent); text-decoration: none; font-size: 11px; font-weight: 600; text-transform: uppercase;">View Asset ↗</a>
+                  </div>
                 </div>
               </div>
             `).join("")}
