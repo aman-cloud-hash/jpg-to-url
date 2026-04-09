@@ -13,7 +13,7 @@ const cloudinary = require("./cloudinary");
 const pool = require("./db");
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 
 // ---- Middleware ----
 app.use(cors());
@@ -52,13 +52,13 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
 });
 
 // =============================================
-// POST /upload - Upload image to Cloudinary & save URL in DB
+// POST /api/upload - Upload image to Cloudinary & save URL in DB
 // =============================================
-app.post("/upload", upload.single("image"), async (req, res) => {
+app.post("/api/upload", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
       console.log("⚠️ No file received in request");
@@ -79,24 +79,10 @@ app.post("/upload", upload.single("image"), async (req, res) => {
     fs.unlinkSync(req.file.path);
     console.log("🗑️ Temporary file deleted");
 
-    const { title, price, category, description, material, is_featured, is_trending } = req.body;
-
-    // Save the product details in CockroachDB
+    // Save the URL AND Public ID in CockroachDB
     const dbResult = await pool.query(
-      `INSERT INTO products (
-        image_url, public_id, title, price, category, description, material, is_featured, is_trending
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-      [
-        result.secure_url, 
-        result.public_id, 
-        title || null, 
-        price || null, 
-        category || null, 
-        description || null, 
-        material || null, 
-        is_featured === 'true' || is_featured === true || false, 
-        is_trending === 'true' || is_trending === true || false
-      ]
+      "INSERT INTO products (image_url, public_id) VALUES ($1, $2) RETURNING *",
+      [result.secure_url, result.public_id]
     );
 
     const newProduct = {
@@ -120,12 +106,12 @@ app.post("/upload", upload.single("image"), async (req, res) => {
 });
 
 // =============================================
-// GET /products - Fetch all products from DB
+// GET /api/products - Fetch all products from DB
 // =============================================
-app.get("/products", async (req, res) => {
+app.get("/api/products", async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT id::text as id, image_url, public_id, title, price, category, description, material, is_featured, is_trending, created_at FROM products ORDER BY created_at DESC"
+      "SELECT id::text as id, image_url, public_id FROM products ORDER BY id DESC"
     );
     
     console.log(`📦 Fetched ${result.rows.length} products`);
@@ -137,9 +123,9 @@ app.get("/products", async (req, res) => {
 });
 
 // =============================================
-// DELETE /delete/:id - Delete from Cloudinary & DB
+// DELETE /api/delete/:id - Delete from Cloudinary & DB
 // =============================================
-app.delete("/delete/:id", async (req, res) => {
+app.delete("/api/delete/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
