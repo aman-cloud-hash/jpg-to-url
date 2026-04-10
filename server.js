@@ -1,5 +1,5 @@
 // =============================================
-// server.js - Express Server (Main Entry Point)
+// server.js - Unified Express Server logic
 // =============================================
 
 const express = require("express");
@@ -15,90 +15,94 @@ const pool = require("./db");
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// ---- Environment Detection ----
+// process.env.VERCEL is automatically set by Vercel deployment
+const isVercel = process.env.VERCEL === "1";
+
 // ---- Middleware ----
 app.use(cors());
 app.use(express.json());
+// Serve static files from the public directory
 app.use(express.static(path.join(__dirname, "public")));
 
-// ---- Multer Setup (Temporary Storage) ----
-// Ensure uploads/ folder exists
-const uploadsDir = path.join(__dirname, "uploads");
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir);
-  console.log("📁 Created uploads/ directory");
-}
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
-  },
-  filename: (req, file, cb) => {
-    // Add timestamp to avoid name conflicts
-    const uniqueName = Date.now() + "-" + file.originalname;
-    cb(null, uniqueName);
-  },
-});
-
-// Only allow image files
-const fileFilter = (req, file, cb) => {
-  const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
-  if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new Error("Only image files (jpg, png, gif, webp) are allowed!"), false);
+// ---- Dynamic Multer Setup ----
+let storage;
+if (isVercel) {
+  // Use memory storage for Vercel (serverless is read-only)
+  storage = multer.memoryStorage();
+  console.log("🛠️ Multer: Using Memory Storage (Vercel)");
+} else {
+  // Use disk storage for local development
+  const uploadsDir = path.join(__dirname, "uploads");
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir);
+    console.log("📁 Created uploads/ directory");
   }
-};
+  storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+      cb(null, "uploads/");
+    },
+    filename: (req, file, cb) => {
+      cb(null, Date.now() + "-" + file.originalname);
+    },
+  });
+  console.log("🛠️ Multer: Using Disk Storage (Local)");
+}
 
 const upload = multer({
   storage,
-  fileFilter,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
 });
 
 // =============================================
-// POST /api/upload - Upload image to Cloudinary & save URL in DB
+// POST /api/upload - Handle uploads dynamically
 // =============================================
 app.post("/api/upload", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
-      console.log("⚠️ No file received in request");
       return res.status(400).json({ error: "No image file provided" });
     }
 
-    console.log("📤 Uploading file:", req.file.originalname);
+    let result;
+    if (isVercel) {
+      // Stream upload from memory buffer (Vercel)
+      console.log("📤 Streaming upload to Cloudinary (Buffer)");
+      result = await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          { folder: "products" },
+          (error, res) => {
+            if (res) resolve(res);
+            else reject(error);
+          }
+        );
+        stream.end(req.file.buffer);
+      });
+    } else {
+      // Path upload (Local)
+      console.log("📤 Uploading from file path:", req.file.path);
+      result = await cloudinary.uploader.upload(req.file.path, {
+        folder: "products",
+      });
+      // Delete temp local file after successful upload
+      fs.unlinkSync(req.file.path);
+    }
 
-    // Upload to Cloudinary
-    const result = await cloudinary.uploader.upload(req.file.path, {
-      folder: "products",
-    });
+    console.log("☁️ Cloudinary Success:", result.secure_url);
 
-    console.log("☁️ Cloudinary upload success:", result.secure_url);
-    console.log("🔑 Cloudinary Public ID:", result.public_id);
-
-    // Delete the temporary file
-    fs.unlinkSync(req.file.path);
-    console.log("🗑️ Temporary file deleted");
-
-    // Save the URL AND Public ID in CockroachDB
+    // Save to database
     const dbResult = await pool.query(
-      "INSERT INTO products (image_url, public_id) VALUES ($1, $2) RETURNING *",
+      "INSERT INTO products (image_url, public_id) VALUES ($1, $2) RETURNING id::text as id, image_url, public_id",
       [result.secure_url, result.public_id]
     );
 
-    const newProduct = {
-      ...dbResult.rows[0],
-      id: dbResult.rows[0].id.toString()
-    };
-
-    console.log("💾 Saved to database, ID:", newProduct.id);
-
     res.status(201).json({
       message: "Image uploaded successfully!",
-      product: newProduct,
+      product: dbResult.rows[0],
     });
   } catch (err) {
     console.error("❌ Upload error:", err.message);
-    if (req.file && fs.existsSync(req.file.path)) {
+    // Cleanup local file if it exists on error
+    if (!isVercel && req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
     res.status(500).json({ error: "Upload failed: " + err.message });
@@ -106,62 +110,52 @@ app.post("/api/upload", upload.single("image"), async (req, res) => {
 });
 
 // =============================================
-// GET /api/products - Fetch all products from DB
+// GET /api/products - Fetch products
 // =============================================
 app.get("/api/products", async (req, res) => {
   try {
     const result = await pool.query(
       "SELECT id::text as id, image_url, public_id FROM products ORDER BY id DESC"
     );
-    
-    console.log(`📦 Fetched ${result.rows.length} products`);
     res.json(result.rows);
   } catch (err) {
-    console.error("❌ Fetch error:", err.message);
-    res.status(500).json({ error: "Failed to fetch products: " + err.message });
+    res.status(500).json({ error: "Failed to fetch: " + err.message });
   }
 });
 
 // =============================================
-// DELETE /api/delete/:id - Delete from Cloudinary & DB
+// DELETE /api/delete/:id - Delete product
 // =============================================
 app.delete("/api/delete/:id", async (req, res) => {
   try {
     const { id } = req.params;
-
-    // 1. Get the record from DB to get the public_id
-    const dbCheck = await pool.query("SELECT * FROM products WHERE id = $1", [id]);
+    const dbCheck = await pool.query("SELECT public_id FROM products WHERE id = $1", [id]);
     
     if (dbCheck.rows.length === 0) {
-      return res.status(404).json({ error: "Product not found in database" });
+      return res.status(404).json({ error: "Product not found" });
     }
 
     const { public_id } = dbCheck.rows[0];
 
-    // 2. Delete from Cloudinary
-    console.log(`☁️ Deleting from Cloudinary: ${public_id}`);
-    const cloudResult = await cloudinary.uploader.destroy(public_id);
-    
-    if (cloudResult.result !== "ok" && cloudResult.result !== "not found") {
-      console.warn("⚠️ Cloudinary delete warning:", cloudResult);
-    }
+    // Delete from Cloudinary
+    await cloudinary.uploader.destroy(public_id);
 
-    // 3. Delete from database
-    const dbResult = await pool.query(
-      "DELETE FROM products WHERE id = $1 RETURNING *",
-      [id]
-    );
+    // Delete from DB
+    await pool.query("DELETE FROM products WHERE id = $1", [id]);
 
-    console.log("🗑️ Deleted from DB, ID:", id);
-    res.json({ message: "Product deleted from Cloudinary and DB", product: dbResult.rows[0] });
+    res.json({ message: "Deleted successfully" });
   } catch (err) {
-    console.error("❌ Delete error:", err.message);
-    res.status(500).json({ error: "Failed to delete: " + err.message });
+    res.status(500).json({ error: "Delete failed: " + err.message });
   }
 });
 
-// ---- Start Server ----
-app.listen(PORT, () => {
-  console.log(`\n🚀 Server running at http://localhost:${PORT}`);
-  console.log(`📂 Frontend at http://localhost:${PORT}/index.html\n`);
-});
+// ---- Deployment Handler ----
+// If NOT on Vercel, start the Express listener
+if (!isVercel) {
+  app.listen(PORT, () => {
+    console.log(`\n🚀 Local Server running at http://localhost:${PORT}`);
+  });
+}
+
+// Export the app for Vercel serverless function use
+module.exports = app;
